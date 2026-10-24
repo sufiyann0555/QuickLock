@@ -43,9 +43,10 @@
             android:theme="@style/Theme.QuickLock.Lock" />
 
         <service
-            android:name=".service.AppLockService"
+            android:name="com.quicklock.applock.service.AppLockService"
+            android:enabled="true"
             android:exported="true"
-            android:label="@string/app_name"
+            android:label="@string/accessibility_service_label"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
