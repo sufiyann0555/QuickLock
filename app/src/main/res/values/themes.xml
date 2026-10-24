@@ -1,0 +1,15 @@
+<resources>
+    <style name="Theme.QuickLock" parent="android:Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@color/qk_bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+    </style>
+
+    <!-- Lock screen: no window animation so it appears instantly. -->
+    <style name="Theme.QuickLock.Lock">
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+</resources>

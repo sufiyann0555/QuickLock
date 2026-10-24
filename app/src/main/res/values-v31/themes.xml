@@ -1,0 +1,9 @@
+<resources>
+    <!-- Android 12+ shows a system splash when a task starts. Make it a plain solid fill matching the
+         lock background so protected content is covered immediately, with no icon flash. -->
+    <style name="Theme.QuickLock.Lock" parent="Theme.QuickLock">
+        <item name="android:windowAnimationStyle">@null</item>
+        <item name="android:windowSplashScreenBackground">@color/qk_bg</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+    </style>
+</resources>
