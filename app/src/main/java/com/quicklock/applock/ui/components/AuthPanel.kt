@@ -38,7 +38,6 @@ fun AuthPanel(
     credentials: CredentialStore,
     onAuthenticated: () -> Unit,
     onFingerprint: (() -> Unit)?,
-    onDeviceCredential: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val type = credentials.type
@@ -135,9 +134,6 @@ fun AuthPanel(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (onFingerprint != null) {
                 TextButton(onClick = onFingerprint) { Text("Use fingerprint") }
-            }
-            if (onDeviceCredential != null) {
-                TextButton(onClick = onDeviceCredential) { Text("Use phone screen lock") }
             }
         }
     }

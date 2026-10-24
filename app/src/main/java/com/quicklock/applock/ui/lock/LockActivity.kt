@@ -47,7 +47,6 @@ class LockActivity : FragmentActivity() {
     private var authInProgress = false
     private var unlocked = false
     private var biometricUsable = false
-    private var deviceCredentialUsable = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,7 +59,6 @@ class LockActivity : FragmentActivity() {
             return
         }
         biometricUsable = BiometricHelper.biometricAvailable(this)
-        deviceCredentialUsable = BiometricHelper.deviceCredentialAvailable(this)
         onBackPressedDispatcher.addCallback(this) { goHome() }
         setContent { QuickLockTheme { LockContent() } }
         window.decorView.filterTouchesWhenObscured = true
@@ -79,8 +77,7 @@ class LockActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
-        // User left the lock screen (home, recents, screen off) without unlocking: close it. The system
-        // authentication sheets don't stop this activity, but the phone-screen-lock flow does, hence the flag.
+        // User left the lock screen (home, recents, screen off) without unlocking: close it.
         if (!authInProgress && !unlocked) finishAndRemoveTask()
     }
 
@@ -98,22 +95,7 @@ class LockActivity : FragmentActivity() {
             activity = this,
             title = "Unlock $targetLabel",
             subtitle = null,
-            useDeviceCredential = false,
             negativeText = secondary,
-            onSuccess = { authInProgress = false; quickLock.credentials.onExternalSuccess(); onUnlocked() },
-            onEnd = { authInProgress = false },
-        )
-    }
-
-    private fun showDeviceCredential() {
-        if (authInProgress) return
-        authInProgress = true
-        BiometricHelper.authenticate(
-            activity = this,
-            title = "Unlock $targetLabel",
-            subtitle = "Use your phone screen lock",
-            useDeviceCredential = true,
-            negativeText = "",
             onSuccess = { authInProgress = false; quickLock.credentials.onExternalSuccess(); onUnlocked() },
             onEnd = { authInProgress = false },
         )
@@ -159,7 +141,6 @@ class LockActivity : FragmentActivity() {
                     credentials = quickLock.credentials,
                     onAuthenticated = { onUnlocked() },
                     onFingerprint = if (biometricOn && biometricUsable) ({ showFingerprint() }) else null,
-                    onDeviceCredential = if (deviceCredentialUsable) ({ showDeviceCredential() }) else null,
                 )
             }
         }

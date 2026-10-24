@@ -97,6 +97,7 @@ class MainActivity : FragmentActivity() {
                 vm = vm,
                 health = health,
                 onEnableAccessibility = { openSystemSettings(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                onEnableNotificationAccess = { openSystemSettings(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
                 onFixBattery = { openSystemSettings(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
                 onOpenAppInfo = {
                     openSystemSettings(
@@ -125,7 +126,6 @@ class MainActivity : FragmentActivity() {
                     credentials = quickLock.credentials,
                     onAuthenticated = { vm.onAuthenticated() },
                     onFingerprint = if (biometricAvailable && quickLock.settings.biometricEnabled.value) ({ tryFingerprint() }) else null,
-                    onDeviceCredential = if (BiometricHelper.deviceCredentialAvailable(this@MainActivity)) ({ tryDeviceCredential() }) else null,
                 )
             }
         }
@@ -140,22 +140,7 @@ class MainActivity : FragmentActivity() {
             activity = this,
             title = "Unlock QuickLock",
             subtitle = null,
-            useDeviceCredential = false,
             negativeText = "Use PIN or pattern",
-            onSuccess = { authInProgress = false; vm.onAuthenticated() },
-            onEnd = { authInProgress = false },
-        )
-    }
-
-    private fun tryDeviceCredential() {
-        if (authInProgress) return
-        authInProgress = true
-        BiometricHelper.authenticate(
-            activity = this,
-            title = "Unlock QuickLock",
-            subtitle = "Use your phone screen lock",
-            useDeviceCredential = true,
-            negativeText = "",
             onSuccess = { authInProgress = false; vm.onAuthenticated() },
             onEnd = { authInProgress = false },
         )

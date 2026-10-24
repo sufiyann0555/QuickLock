@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The ONLY permission the app requests. No INTERNET, no QUERY_ALL_PACKAGES, no overlay,
-         no usage-stats, no boot receiver, no foreground service. -->
+    <!-- The only uses-permission entry. No INTERNET, QUERY_ALL_PACKAGES, overlay, or usage-stats. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <!-- Lets us list launchable apps for the picker without QUERY_ALL_PACKAGES. -->
@@ -54,6 +53,16 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <service
+            android:name=".service.LockedAppNotificationListener"
+            android:exported="true"
+            android:label="@string/notification_listener_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
         </service>
     </application>
 </manifest>

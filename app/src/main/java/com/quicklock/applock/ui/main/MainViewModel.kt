@@ -35,9 +35,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val apps: StateFlow<List<AppEntry>> = _apps.asStateFlow()
     val query = MutableStateFlow("")
 
-    val filtered: StateFlow<List<AppEntry>> = combine(_apps, query) { list, q ->
+    val filtered: StateFlow<List<AppEntry>> = combine(_apps, query, settings.lockedApps) { list, q, locked ->
         val needle = q.trim()
-        if (needle.isEmpty()) list else list.filter { it.label.contains(needle, ignoreCase = true) }
+        val ordered = list.sortedWith(
+            compareByDescending<AppEntry> { it.packageName in locked }
+                .thenBy { it.label.lowercase() },
+        )
+        if (needle.isEmpty()) ordered else ordered.filter { it.label.contains(needle, ignoreCase = true) }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private var loadedAt = 0L

@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.quicklock.applock"
-        minSdk = 30          // Android 11+: BiometricPrompt DEVICE_CREDENTIAL, package visibility, modern keystore
+        minSdk = 30          // Android 11+: package visibility and modern Keystore support
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"

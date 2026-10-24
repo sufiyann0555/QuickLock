@@ -54,6 +54,7 @@ fun MainScreen(
     vm: MainViewModel,
     health: Health,
     onEnableAccessibility: () -> Unit,
+    onEnableNotificationAccess: () -> Unit,
     onFixBattery: () -> Unit,
     onOpenAppInfo: () -> Unit,
 ) {
@@ -81,7 +82,7 @@ fun MainScreen(
             if (tab == 0) {
                 AppsTab(vm, health, onFix = { tab = 1 })
             } else {
-                SettingsTab(vm, health, onEnableAccessibility, onFixBattery, onOpenAppInfo)
+                SettingsTab(vm, health, onEnableAccessibility, onEnableNotificationAccess, onFixBattery, onOpenAppInfo)
             }
         }
     }
@@ -174,6 +175,7 @@ private fun SettingsTab(
     vm: MainViewModel,
     health: Health,
     onEnableAccessibility: () -> Unit,
+    onEnableNotificationAccess: () -> Unit,
     onFixBattery: () -> Unit,
     onOpenAppInfo: () -> Unit,
 ) {
@@ -205,6 +207,23 @@ private fun SettingsTab(
                     ok = health.accessibilityEnabled,
                     actionLabel = if (health.accessibilityEnabled) null else "Enable",
                     onAction = onEnableAccessibility,
+                )
+                StatusRow(
+                    title = "Hide locked-app notifications",
+                    detail = if (health.notificationAccessEnabled) {
+                        "On. Notifications from protected apps are removed."
+                    } else {
+                        "Off. Allow notification access to hide notifications from protected apps."
+                    },
+                    ok = health.notificationAccessEnabled,
+                    actionLabel = if (health.notificationAccessEnabled) null else "Enable",
+                    onAction = onEnableNotificationAccess,
+                )
+                Text(
+                    "QuickLock removes notifications from apps you lock. Removed notifications aren't saved or restored when you unlock an app.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 )
                 StatusRow(
                     title = "Unlock method",
