@@ -10,7 +10,7 @@ class LockEngineTest {
     private var now = 0L
     private var relock = 0
     private val policy = object : LockPolicy {
-        override fun isLocked(pkg: String) = pkg == "bank"
+        override fun isLocked(pkg: String) = pkg == "bank" || pkg == "snap"
         override fun relockSeconds() = relock
     }
     private val engine = LockEngine(policy) { now }
@@ -82,6 +82,34 @@ class LockEngineTest {
         engine.onForeground("home")
         engine.preAuthorize("bank")
         now += 9_000                             // grant window is 8 s
+        assertTrue(engine.onForeground("bank"))
+    }
+
+    @Test
+    fun preAuthorizationOnlyAppliesToItsPackage() {
+        engine.preAuthorize("bank")
+
+        assertTrue(engine.onForeground("snap"))
+        assertFalse(engine.onForeground("bank"))
+    }
+
+    @Test
+    fun revokedPreAuthorizationDoesNotUnlockThePackage() {
+        engine.preAuthorize("bank")
+        engine.revokePreAuthorization("bank")
+
+        assertTrue(engine.onForeground("bank"))
+    }
+
+    @Test
+    fun preAuthorizationIsDiscardedWhenPackageWasAlreadyAuthorized() {
+        engine.onForeground("bank")
+        engine.onUnlocked("bank")
+        engine.preAuthorize("bank")
+
+        assertFalse(engine.onForeground("bank"))
+        engine.onForeground("home")
+        now += 1
         assertTrue(engine.onForeground("bank"))
     }
 }

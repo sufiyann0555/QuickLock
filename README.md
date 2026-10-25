@@ -37,9 +37,12 @@ services are allowed to start activities from the background; this is the only r
   frame of the app may flash on slower devices.
 * **Notification filtering is optional and requires notification access plus permission to post notifications.** When
   enabled, QuickLock replaces protected apps' alerts with redacted entries in the notification drawer. Tapping
-  **Unlock to view** opens QuickLock authentication; after success, the alert's title and text are shown in the drawer
-  and its original tap action is retained. Rich notification layouts and secondary actions are not preserved. Pending
-  content is held in memory, so it cannot be restored if Android kills QuickLock before authentication.
+  **Unlock to view** opens QuickLock authentication for that source app. After success, QuickLock restores the saved
+  alerts for that app only and sends the exact tapped alert's original content action when that live `PendingIntent`
+  remains valid; it never substitutes the app's launcher screen. Other protected apps' alerts remain redacted.
+  Android still attributes replacement alerts to QuickLock; rich source layouts and secondary
+  actions cannot be reproduced. Notification contents and live `PendingIntent` references are held in memory, so
+  they cannot be restored if Android kills QuickLock before authentication.
   QuickLock cannot hide protected apps' recents thumbnails.
 * **Cannot survive being killed by the OS.** If Samsung force-stops the process, state resets to "everything
   locked" (the safe default), but the accessibility service may stay disabled until re-enabled. See the battery steps below.
@@ -85,7 +88,9 @@ AppLockService (AccessibilityService, main thread, event-driven)
               └─ true → start LockActivity(pkg)
 LockActivity: AuthPanel (PIN auto-submits on last digit / pattern) + BiometricPrompt (fingerprint, STRONG only)
               → engine.onUnlocked(pkg) → finish → app is underneath
-LockedAppNotificationListener: replaces notifications from protected packages with redacted entries, then restores title/text after authentication
+LockedAppNotificationListener: captures each source notification, replaces it with a redacted QuickLock alert
+NotificationUnlockActivity: authenticates for the source package → restores that package's saved alerts → sends only the tapped alert's original PendingIntent
+  └─ LockEngine.preAuthorize(pkg): one-shot 8-second grant prevents the accessibility lock from intercepting that launch
 Screen off → all sessions cleared. Keyguard dismissed → current app is re-checked.
 ```
 
@@ -127,6 +132,9 @@ No `INTERNET`, no `QUERY_ALL_PACKAGES` (a `<queries>` launcher intent is used in
 - [ ] Lock an app → open it → lock screen appears; correct PIN/pattern/fingerprint opens it.
 - [ ] Locked apps move to the top of the Apps list as soon as their switches are enabled.
 - [ ] With notification access and posting permission enabled, locked-app alerts stay redacted in the drawer; tapping **Unlock to view** and authenticating reveals the title/text.
+- [ ] With multiple protected apps notifying, authenticating from one app restores only that app's alerts and opens the exact tapped notification destination.
+- [ ] Wrong PIN/pattern or cancelling biometric leaves all redacted contents hidden and does not launch the source app.
+- [ ] Cancelling a source notification removes its redacted replacement; updating one notification does not overwrite other notifications from the same app.
 - [ ] Notifications from unlocked apps remain unchanged, and QuickLock does not intercept its own notifications.
 - [ ] Home, then reopen (relock = immediately) → locked again. With 30 s grace → open within 30 s, no prompt.
 - [ ] Show the keyboard / pull the notification shade inside an unlocked app → no relock.

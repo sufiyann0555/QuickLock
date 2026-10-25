@@ -2,6 +2,7 @@ package com.quicklock.applock.service
 
 import android.app.Notification
 import android.content.pm.PackageManager
+import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.NotificationListenerService.RankingMap
 import android.service.notification.StatusBarNotification
@@ -16,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 /** Replaces notifications from protected apps with redacted, unlockable notifications. */
 class LockedAppNotificationListener : NotificationListenerService() {
@@ -61,7 +63,7 @@ class LockedAppNotificationListener : NotificationListenerService() {
         if (reason == REASON_LISTENER_CANCEL) return
 
         settingsNotifications.remove(sbn.key)
-        LockedNotificationPublisher.cancel(this, sbn.key)
+        LockedNotificationPublisher.cancel(this, sbn.key, sbn.id)
     }
 
     override fun onDestroy() {
@@ -77,9 +79,13 @@ class LockedAppNotificationListener : NotificationListenerService() {
         val active = runCatching { activeNotifications }.getOrNull() ?: return
         active.filter { it.packageName in lockedApps && it.packageName != packageName }
             .forEach(::replaceWithRedacted)
-        settingsNotifications.all().forEach { notification ->
-            if (notification.packageName !in lockedApps) restore(notification)
-        }
+        settingsNotifications.all().asSequence()
+            .map { it.packageName }
+            .distinct()
+            .filter { it !in lockedApps }
+            .forEach { packageName ->
+                settingsNotifications.restoreNotificationsForPackage(this, packageName, null)
+            }
     }
 
     private fun replaceWithRedacted(sbn: StatusBarNotification) {
@@ -90,38 +96,63 @@ class LockedAppNotificationListener : NotificationListenerService() {
         }
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
-            ?.takeIf { it.isNotBlank() } ?: appLabel
-        val text = (extras.getCharSequence(Notification.EXTRA_BIG_TEXT)
-            ?: extras.getCharSequence(Notification.EXTRA_TEXT))
-            ?.toString()
             ?.takeIf { it.isNotBlank() }
+            ?: extras.getCharSequence(Notification.EXTRA_TITLE_BIG)?.toString()?.takeIf { it.isNotBlank() }
+            ?: extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString()?.takeIf { it.isNotBlank() }
+            ?: appLabel
+        val smallIcon = try {
+            sbn.notification.smallIcon?.let { IconCompat.createFromIcon(this, it) }
+        } catch (_: IllegalArgumentException) {
+            null
+        }
         val notification = LockedNotification(
             key = sbn.key,
+            captureToken = UUID.randomUUID().toString(),
             packageName = sbn.packageName,
+            originalId = sbn.id,
+            originalTag = sbn.tag,
             appLabel = appLabel,
-            smallIcon = sbn.notification.smallIcon?.let { IconCompat.createFromIcon(this, it) },
+            smallIcon = smallIcon,
             title = title,
-            text = text,
+            text = notificationText(extras),
             contentIntent = sbn.notification.contentIntent,
+            postedAtMillis = sbn.postTime,
+            groupKey = sbn.notification.group,
+            isGroupSummary = sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0,
+            number = sbn.notification.number,
+            category = sbn.notification.category,
         )
-        settingsNotifications.put(notification)
+        val previous = settingsNotifications.put(notification)
         try {
             LockedNotificationPublisher.postLocked(this, notification)
         } catch (error: SecurityException) {
-            settingsNotifications.remove(sbn.key)
+            settingsNotifications.rollbackPut(notification, previous)
+            Log.e(TAG, "Unable to publish redacted notification", error)
+            return
+        } catch (error: IllegalArgumentException) {
+            settingsNotifications.rollbackPut(notification, previous)
             Log.e(TAG, "Unable to publish redacted notification", error)
             return
         }
         cancelNotification(sbn.key)
     }
 
-    private fun restore(notification: LockedNotification) {
-        try {
-            LockedNotificationPublisher.postRestored(this, notification)
-            settingsNotifications.remove(notification.key)
-        } catch (error: SecurityException) {
-            Log.e(TAG, "Unable to restore notification", error)
-        }
+    private fun notificationText(extras: Bundle): String? {
+        val textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+            ?.mapNotNull { it?.toString()?.takeIf(String::isNotBlank) }
+            ?.takeIf { it.isNotEmpty() }
+            ?.joinToString("\n")
+        val messageLines = extras.getParcelableArray(Notification.EXTRA_MESSAGES)
+            ?.mapNotNull { message ->
+                (message as? Bundle)?.getCharSequence("text")?.toString()?.takeIf(String::isNotBlank)
+            }
+            ?.takeIf { it.isNotEmpty() }
+            ?.joinToString("\n")
+        return extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()?.takeIf(String::isNotBlank)
+            ?: textLines
+            ?: messageLines
+            ?: extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()?.takeIf(String::isNotBlank)
+            ?: extras.getCharSequence(Notification.EXTRA_SUMMARY_TEXT)?.toString()?.takeIf(String::isNotBlank)
     }
 
     private fun clearStalePlaceholders() {
@@ -129,7 +160,9 @@ class LockedAppNotificationListener : NotificationListenerService() {
         active.filter { it.packageName == packageName && it.tag?.startsWith(TAG_PREFIX) == true }
             .forEach { sbn ->
                 val key = LockedNotificationPublisher.keyFromTag(sbn.tag) ?: return@forEach
-                if (settingsNotifications[key] == null) LockedNotificationPublisher.cancel(this, key)
+                if (settingsNotifications[key] == null) {
+                    LockedNotificationPublisher.cancel(this, key, sbn.id)
+                }
             }
     }
 

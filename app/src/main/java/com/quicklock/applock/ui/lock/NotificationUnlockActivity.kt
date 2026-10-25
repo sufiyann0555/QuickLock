@@ -1,7 +1,12 @@
 package com.quicklock.applock.ui.lock
 
+import android.app.PendingIntent
+import android.content.ActivityNotFoundException
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.addCallback
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -34,8 +39,11 @@ import com.quicklock.applock.ui.theme.QuickLockTheme
 class NotificationUnlockActivity : FragmentActivity() {
 
     private var notificationKey by mutableStateOf<String?>(null)
+    private var captureToken by mutableStateOf<String?>(null)
+    private var targetPackage by mutableStateOf<String?>(null)
     private var error by mutableStateOf<String?>(null)
     private var authInProgress = false
+    private var authenticationHandled = false
     private var biometricUsable = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,6 +51,10 @@ class NotificationUnlockActivity : FragmentActivity() {
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         enableEdgeToEdge()
         notificationKey = intent.getStringExtra(EXTRA_NOTIFICATION_KEY)
+        captureToken = intent.getStringExtra(EXTRA_CAPTURE_TOKEN)
+        targetPackage = intent.getStringExtra(EXTRA_PACKAGE_NAME)
+        error = savedInstanceState?.getString(STATE_ERROR)
+        authenticationHandled = savedInstanceState?.getBoolean(STATE_AUTHENTICATION_HANDLED) ?: false
         biometricUsable = BiometricHelper.biometricAvailable(this)
         onBackPressedDispatcher.addCallback(this) { finish() }
         setContent { QuickLockTheme { Content() } }
@@ -52,9 +64,15 @@ class NotificationUnlockActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         val key = notificationKey ?: return
-        if (!authInProgress && biometricUsable && quickLock.settings.biometricEnabled.value) {
+        if (!authenticationHandled && !authInProgress && biometricUsable && quickLock.settings.biometricEnabled.value) {
             authenticateWithFingerprint(key)
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(STATE_ERROR, error)
+        outState.putBoolean(STATE_AUTHENTICATION_HANDLED, authenticationHandled)
+        super.onSaveInstanceState(outState)
     }
 
     private fun authenticateWithFingerprint(key: String) {
@@ -68,30 +86,100 @@ class NotificationUnlockActivity : FragmentActivity() {
             onSuccess = {
                 authInProgress = false
                 quickLock.credentials.onExternalSuccess()
-                restoreNotification(key)
+                onAuthenticated()
             },
             onEnd = { authInProgress = false },
         )
     }
 
-    private fun restoreNotification(key: String) {
-        val notification = quickLock.lockedNotifications[key]
-        if (notification == null) {
-            error = "This notification is no longer available. QuickLock may have been restarted."
+    private fun onAuthenticated() {
+        if (authenticationHandled) return
+        authenticationHandled = true
+
+        val key = notificationKey
+        val token = captureToken
+        val pkg = targetPackage
+        if (key == null || token == null || pkg == null) {
+            error = "This notification couldn't be identified. No app was opened."
+            return
+        }
+        if (pkg !in quickLock.settings.lockedApps.value) {
+            error = "This app is no longer protected. Reopen its notification from the drawer."
             return
         }
         try {
-            LockedNotificationPublisher.postRestored(this, notification)
-            quickLock.lockedNotifications.remove(key)
+            packageManager.getApplicationInfo(pkg, 0)
+        } catch (_: PackageManager.NameNotFoundException) {
+            quickLock.lockedNotifications.discardPackage(this, pkg)
+            error = "The source app is no longer installed. Its saved notifications were discarded."
+            return
+        }
+
+        val notification = quickLock.lockedNotifications[key]
+            ?.takeIf { it.packageName == pkg }
+        if (notification == null) {
+            error = "This notification is no longer available. Its contents and destination were not restored."
+            return
+        }
+
+        val tapAction = quickLock.lockedNotifications.tapAction(key, token)
+            ?.takeIf { it.packageName == pkg }
+        if (tapAction == null) {
+            error = "This notification action is no longer available. No app was opened."
+            return
+        }
+        if (!quickLock.lockedNotifications.claimTapAction(tapAction)) {
+            error = "This notification has already been opened or is no longer available."
+            return
+        }
+
+        val result = quickLock.lockedNotifications.restoreNotificationsForPackage(this, pkg, key, token)
+        if (result.tappedNotification == null) {
+            quickLock.lockedNotifications.finishTapAction(tapAction)
+            error = "This notification is no longer available. Its destination was not opened."
+            return
+        }
+        if (result.failedCount > 0) {
+            Log.w(TAG, "Could not restore ${result.failedCount} notification(s) for package $pkg")
+            Toast.makeText(
+                this,
+                "Some ${notification.appLabel} notifications couldn't be restored.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+
+        val contentIntent = tapAction.contentIntent
+        if (contentIntent == null) {
+            quickLock.lockedNotifications.finishTapAction(tapAction)
+            error = "The notification was restored, but its original destination isn't available."
+            return
+        }
+
+        quickLock.engine.preAuthorize(pkg)
+        try {
+            contentIntent.send()
             finish()
+        } catch (failure: PendingIntent.CanceledException) {
+            quickLock.engine.revokePreAuthorization(pkg)
+            Log.w(TAG, "Original notification action is no longer available for package $pkg")
+            error = "The notification was restored, but its original destination is no longer available."
         } catch (failure: SecurityException) {
-            error = "QuickLock can't show notifications. Allow notifications for QuickLock in system settings, then try again."
+            quickLock.engine.revokePreAuthorization(pkg)
+            Log.w(TAG, "Android denied the original notification action for package $pkg", failure)
+            error = "The notification was restored, but Android couldn't open its original destination."
+        } catch (failure: ActivityNotFoundException) {
+            quickLock.engine.revokePreAuthorization(pkg)
+            Log.w(TAG, "No activity can handle the original notification action for package $pkg")
+            error = "The notification was restored, but its destination app is unavailable."
+        } finally {
+            quickLock.lockedNotifications.finishTapAction(tapAction)
         }
     }
 
     @Composable
     private fun Content() {
         val key = notificationKey
+        val pkg = targetPackage
         val appLabel = key?.let { quickLock.lockedNotifications[it]?.appLabel }
         val biometricOn by quickLock.settings.biometricEnabled.collectAsState()
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -104,19 +192,21 @@ class NotificationUnlockActivity : FragmentActivity() {
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text("Unlock to view", style = MaterialTheme.typography.headlineSmall)
-                if (appLabel != null) {
+                if (appLabel != null && pkg != null) {
                     Spacer(Modifier.height(8.dp))
                     Text(appLabel, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(24.dp))
                 when {
+                    authenticationHandled -> Text("Authentication complete.")
                     key == null -> Text("This notification couldn't be identified.")
+                    pkg == null -> Text("The source app couldn't be identified.")
                     quickLock.lockedNotifications[key] == null ->
                         Text("This notification is no longer available. QuickLock may have been restarted.")
                     !quickLock.credentials.isSet -> Text("Set a QuickLock PIN or pattern before unlocking notifications.")
                     else -> AuthPanel(
                         credentials = quickLock.credentials,
-                        onAuthenticated = { restoreNotification(key) },
+                        onAuthenticated = { onAuthenticated() },
                         onFingerprint = if (biometricOn && biometricUsable) {
                             { authenticateWithFingerprint(key) }
                         } else {
@@ -134,5 +224,10 @@ class NotificationUnlockActivity : FragmentActivity() {
 
     companion object {
         const val EXTRA_NOTIFICATION_KEY = "notification_key"
+        const val EXTRA_PACKAGE_NAME = "source_package"
+        const val EXTRA_CAPTURE_TOKEN = "capture_token"
+        private const val STATE_AUTHENTICATION_HANDLED = "authentication_handled"
+        private const val STATE_ERROR = "unlock_error"
+        private const val TAG = "QuickLockNotifications"
     }
 }

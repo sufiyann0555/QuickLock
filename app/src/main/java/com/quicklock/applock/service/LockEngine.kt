@@ -31,10 +31,16 @@ class LockEngine(
             current?.let { if (sessions[it] == IN_FOREGROUND) sessions[it] = now }
             current = pkg
         }
-        if (!policy.isLocked(pkg)) return false
+        if (!policy.isLocked(pkg)) {
+            grants.remove(pkg)
+            return false
+        }
 
         val state = sessions[pkg] ?: return !consumeGrant(pkg, now)
-        if (state == IN_FOREGROUND) return false
+        if (state == IN_FOREGROUND) {
+            grants.remove(pkg)
+            return false
+        }
 
         val timeout = policy.relockSeconds()
         val expired = timeout == 0 || (timeout > 0 && now - state > timeout * 1000L)
@@ -42,6 +48,7 @@ class LockEngine(
             sessions.remove(pkg)
             return !consumeGrant(pkg, now)
         }
+        grants.remove(pkg)
         sessions[pkg] = IN_FOREGROUND
         return false
     }
@@ -57,6 +64,10 @@ class LockEngine(
      */
     fun preAuthorize(pkg: String) {
         grants[pkg] = clock()
+    }
+
+    fun revokePreAuthorization(pkg: String) {
+        grants.remove(pkg)
     }
 
     /** Screen turned off: everything relocks. [current] is kept so we can re-check after unlock. */
