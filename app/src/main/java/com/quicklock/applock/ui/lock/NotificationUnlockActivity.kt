@@ -4,6 +4,8 @@ import android.app.PendingIntent
 import android.content.ActivityNotFoundException
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.WindowManager
 import android.widget.Toast
@@ -47,6 +49,7 @@ class NotificationUnlockActivity : FragmentActivity() {
     private var error by mutableStateOf<String?>(null)
     private var authInProgress = false
     private var authenticationHandled = false
+    private var actionLaunchPending = false
     private var biometricUsable = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,6 +61,7 @@ class NotificationUnlockActivity : FragmentActivity() {
         targetPackage = intent.getStringExtra(EXTRA_PACKAGE_NAME)
         error = savedInstanceState?.getString(STATE_ERROR)
         authenticationHandled = savedInstanceState?.getBoolean(STATE_AUTHENTICATION_HANDLED) ?: false
+        actionLaunchPending = savedInstanceState?.getBoolean(STATE_ACTION_LAUNCH_PENDING) ?: false
         biometricUsable = BiometricHelper.biometricAvailable(this)
         onBackPressedDispatcher.addCallback(this) { finish() }
         setContent { QuickLockTheme { Content() } }
@@ -75,6 +79,7 @@ class NotificationUnlockActivity : FragmentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString(STATE_ERROR, error)
         outState.putBoolean(STATE_AUTHENTICATION_HANDLED, authenticationHandled)
+        outState.putBoolean(STATE_ACTION_LAUNCH_PENDING, actionLaunchPending)
         super.onSaveInstanceState(outState)
     }
 
@@ -149,7 +154,7 @@ class NotificationUnlockActivity : FragmentActivity() {
         }
 
         when (dispatchResult) {
-            NotificationActionDispatchResult.DISPATCHED -> finish()
+            NotificationActionDispatchResult.DISPATCHED -> Unit
             NotificationActionDispatchResult.ALREADY_HANDLED ->
                 error = "This notification has already been opened or is no longer available."
             NotificationActionDispatchResult.UNAVAILABLE,
@@ -169,15 +174,25 @@ class NotificationUnlockActivity : FragmentActivity() {
     private fun sendOriginalAction(action: NotificationTapAction): NotificationActionDispatchResult {
         val contentIntent = action.contentIntent ?: return NotificationActionDispatchResult.ACTION_UNAVAILABLE
         return try {
-            contentIntent.send()
+            actionLaunchPending = true
+            contentIntent.send(
+                this,
+                0,
+                null,
+                PendingIntent.OnFinished { _, _, _, _, _ -> finish() },
+                Handler(Looper.getMainLooper()),
+            )
             NotificationActionDispatchResult.DISPATCHED
         } catch (failure: PendingIntent.CanceledException) {
+            actionLaunchPending = false
             Log.w(TAG, "Original notification action is no longer available for package ${action.packageName}")
             NotificationActionDispatchResult.ACTION_CANCELED
         } catch (failure: SecurityException) {
+            actionLaunchPending = false
             Log.w(TAG, "Android denied the original notification action for package ${action.packageName}", failure)
             NotificationActionDispatchResult.ACTION_DENIED
         } catch (failure: ActivityNotFoundException) {
+            actionLaunchPending = false
             Log.w(TAG, "No activity can handle the original notification action for package ${action.packageName}")
             NotificationActionDispatchResult.DESTINATION_UNAVAILABLE
         }
@@ -205,6 +220,7 @@ class NotificationUnlockActivity : FragmentActivity() {
                 }
                 Spacer(Modifier.height(24.dp))
                 when {
+                    actionLaunchPending -> Text("Opening notification…")
                     authenticationHandled -> Text("Authentication complete.")
                     key == null -> Text("This notification couldn't be identified.")
                     pkg == null -> Text("The source app couldn't be identified.")
@@ -234,6 +250,7 @@ class NotificationUnlockActivity : FragmentActivity() {
         const val EXTRA_PACKAGE_NAME = "source_package"
         const val EXTRA_CAPTURE_TOKEN = "capture_token"
         private const val STATE_AUTHENTICATION_HANDLED = "authentication_handled"
+        private const val STATE_ACTION_LAUNCH_PENDING = "action_launch_pending"
         private const val STATE_ERROR = "unlock_error"
         private const val TAG = "QuickLockNotifications"
     }
