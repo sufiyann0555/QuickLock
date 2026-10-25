@@ -11,6 +11,7 @@ import android.view.inputmethod.InputMethodManager
 import androidx.core.content.ContextCompat
 import com.quicklock.applock.QuickLockApp
 import com.quicklock.applock.ui.lock.LockActivity
+import com.quicklock.applock.ui.lock.NotificationUnlockActivity
 
 /**
  * Event-driven foreground detector. There is no polling, no timer, no wake lock and no foreground
@@ -58,8 +59,16 @@ class AppLockService : AccessibilityService() {
         if (event == null || event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
         val pkg = event.packageName?.toString() ?: return
 
-        // Our own lock screen appearing must not count as "the user switched apps".
-        if (pkg == packageName && event.className?.toString() == LockActivity::class.java.name) return
+        // Our lock and notification-auth screens must not count as leaving the protected app.
+        if (pkg == packageName) {
+            val className = event.className?.toString()
+            if (
+                className == LockActivity::class.java.name ||
+                className == NotificationUnlockActivity::class.java.name
+            ) {
+                return
+            }
+        }
         if (pkg in ALWAYS_IGNORED || isInputMethod(pkg)) return
         if (!app.credentials.isSet) return // nothing to authenticate against yet: never trap the user
 

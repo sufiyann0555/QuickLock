@@ -32,7 +32,10 @@ import androidx.fragment.app.FragmentActivity
 import com.quicklock.applock.quickLock
 import com.quicklock.applock.security.BiometricHelper
 import com.quicklock.applock.security.CredentialType
-import com.quicklock.applock.service.LockedNotificationPublisher
+import com.quicklock.applock.service.AuthenticatedNotificationActionDispatcher
+import com.quicklock.applock.service.NotificationActionDispatchResult
+import com.quicklock.applock.service.NotificationTapAction
+import com.quicklock.applock.service.PackageRestoreResult
 import com.quicklock.applock.ui.components.AuthPanel
 import com.quicklock.applock.ui.theme.QuickLockTheme
 
@@ -122,25 +125,22 @@ class NotificationUnlockActivity : FragmentActivity() {
             return
         }
 
-        val tapAction = quickLock.lockedNotifications.tapAction(key, token)
-            ?.takeIf { it.packageName == pkg }
-        if (tapAction == null) {
-            error = "This notification action is no longer available. No app was opened."
-            return
-        }
-        if (!quickLock.lockedNotifications.claimTapAction(tapAction)) {
-            error = "This notification has already been opened or is no longer available."
-            return
-        }
-
-        val result = quickLock.lockedNotifications.restoreNotificationsForPackage(this, pkg, key, token)
-        if (result.tappedNotification == null) {
-            quickLock.lockedNotifications.finishTapAction(tapAction)
-            error = "This notification is no longer available. Its destination was not opened."
-            return
-        }
-        if (result.failedCount > 0) {
-            Log.w(TAG, "Could not restore ${result.failedCount} notification(s) for package $pkg")
+        var restoreResult: PackageRestoreResult? = null
+        val dispatchResult = AuthenticatedNotificationActionDispatcher(quickLock.lockedNotifications).dispatch(
+            packageName = pkg,
+            notificationKey = key,
+            captureToken = token,
+            restorePackage = {
+                quickLock.lockedNotifications.restoreNotificationsForPackage(this, pkg, key, token)
+                    .also { restoreResult = it }
+                    .tappedNotification != null
+            },
+            preAuthorize = quickLock.engine::preAuthorize,
+            revokeAuthorization = quickLock.engine::revokePreAuthorization,
+            sendAction = ::sendOriginalAction,
+        )
+        if ((restoreResult?.failedCount ?: 0) > 0) {
+            Log.w(TAG, "Could not restore ${restoreResult?.failedCount} notification(s) for package $pkg")
             Toast.makeText(
                 this,
                 "Some ${notification.appLabel} notifications couldn't be restored.",
@@ -148,31 +148,38 @@ class NotificationUnlockActivity : FragmentActivity() {
             ).show()
         }
 
-        val contentIntent = tapAction.contentIntent
-        if (contentIntent == null) {
-            quickLock.lockedNotifications.finishTapAction(tapAction)
-            error = "The notification was restored, but its original destination isn't available."
-            return
+        when (dispatchResult) {
+            NotificationActionDispatchResult.DISPATCHED -> finish()
+            NotificationActionDispatchResult.ALREADY_HANDLED ->
+                error = "This notification has already been opened or is no longer available."
+            NotificationActionDispatchResult.UNAVAILABLE,
+            NotificationActionDispatchResult.RESTORE_FAILED ->
+                error = "This notification is no longer available. Its destination was not opened."
+            NotificationActionDispatchResult.ACTION_UNAVAILABLE ->
+                error = "The notification was restored, but its original destination isn't available."
+            NotificationActionDispatchResult.ACTION_CANCELED ->
+                error = "The notification was restored, but its original destination is no longer available."
+            NotificationActionDispatchResult.ACTION_DENIED ->
+                error = "The notification was restored, but Android couldn't open its original destination."
+            NotificationActionDispatchResult.DESTINATION_UNAVAILABLE ->
+                error = "The notification was restored, but its destination app is unavailable."
         }
+    }
 
-        quickLock.engine.preAuthorize(pkg)
-        try {
+    private fun sendOriginalAction(action: NotificationTapAction): NotificationActionDispatchResult {
+        val contentIntent = action.contentIntent ?: return NotificationActionDispatchResult.ACTION_UNAVAILABLE
+        return try {
             contentIntent.send()
-            finish()
+            NotificationActionDispatchResult.DISPATCHED
         } catch (failure: PendingIntent.CanceledException) {
-            quickLock.engine.revokePreAuthorization(pkg)
-            Log.w(TAG, "Original notification action is no longer available for package $pkg")
-            error = "The notification was restored, but its original destination is no longer available."
+            Log.w(TAG, "Original notification action is no longer available for package ${action.packageName}")
+            NotificationActionDispatchResult.ACTION_CANCELED
         } catch (failure: SecurityException) {
-            quickLock.engine.revokePreAuthorization(pkg)
-            Log.w(TAG, "Android denied the original notification action for package $pkg", failure)
-            error = "The notification was restored, but Android couldn't open its original destination."
+            Log.w(TAG, "Android denied the original notification action for package ${action.packageName}", failure)
+            NotificationActionDispatchResult.ACTION_DENIED
         } catch (failure: ActivityNotFoundException) {
-            quickLock.engine.revokePreAuthorization(pkg)
-            Log.w(TAG, "No activity can handle the original notification action for package $pkg")
-            error = "The notification was restored, but its destination app is unavailable."
-        } finally {
-            quickLock.lockedNotifications.finishTapAction(tapAction)
+            Log.w(TAG, "No activity can handle the original notification action for package ${action.packageName}")
+            NotificationActionDispatchResult.DESTINATION_UNAVAILABLE
         }
     }
 

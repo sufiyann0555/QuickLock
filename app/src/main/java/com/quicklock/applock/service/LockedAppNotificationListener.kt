@@ -1,12 +1,18 @@
 package com.quicklock.applock.service
 
 import android.app.Notification
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.content.res.Resources
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.NotificationListenerService.RankingMap
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import android.util.LruCache
 import androidx.core.graphics.drawable.IconCompat
 import com.quicklock.applock.QuickLockApp
 import com.quicklock.applock.service.LockedNotificationPublisher.TAG_PREFIX
@@ -89,10 +95,16 @@ class LockedAppNotificationListener : NotificationListenerService() {
     }
 
     private fun replaceWithRedacted(sbn: StatusBarNotification) {
-        val appLabel = try {
-            packageManager.getApplicationLabel(packageManager.getApplicationInfo(sbn.packageName, 0)).toString()
+        val applicationInfo = try {
+            packageManager.getApplicationInfo(sbn.packageName, 0)
         } catch (_: PackageManager.NameNotFoundException) {
-            sbn.packageName
+            null
+        }
+        val appLabel = applicationInfo?.let {
+            packageManager.getApplicationLabel(it).toString()
+        } ?: sbn.packageName
+        val appIcons = applicationInfo?.let {
+            SourceAppNotificationIcons.load(this, sbn.packageName, it)
         }
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
@@ -113,6 +125,8 @@ class LockedAppNotificationListener : NotificationListenerService() {
             originalTag = sbn.tag,
             appLabel = appLabel,
             smallIcon = smallIcon,
+            sourceAppIcon = appIcons?.smallIcon,
+            sourceAppLargeIcon = appIcons?.largeIcon,
             title = title,
             text = notificationText(extras),
             contentIntent = sbn.notification.contentIntent,
@@ -168,5 +182,63 @@ class LockedAppNotificationListener : NotificationListenerService() {
 
     private companion object {
         const val TAG = "QuickLockNotifications"
+    }
+}
+
+private data class SourceAppIcons(
+    val smallIcon: IconCompat?,
+    val largeIcon: Bitmap?,
+)
+
+private object SourceAppNotificationIcons {
+    private val cache = LruCache<String, SourceAppIcons>(16)
+
+    @Synchronized
+    fun load(context: LockedAppNotificationListener, packageName: String, appInfo: ApplicationInfo): SourceAppIcons {
+        cache.get(packageName)?.let { return it }
+
+        val smallIcon = if (appInfo.icon != 0) {
+            try {
+                IconCompat.createWithResource(
+                    context.packageManager.getResourcesForApplication(appInfo),
+                    packageName,
+                    appInfo.icon,
+                )
+            } catch (_: PackageManager.NameNotFoundException) {
+                null
+            } catch (_: Resources.NotFoundException) {
+                null
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+        } else {
+            null
+        }
+
+        val largeIcon = try {
+            context.packageManager.getApplicationIcon(appInfo).toBitmap()
+        } catch (_: PackageManager.NameNotFoundException) {
+            null
+        } catch (_: Resources.NotFoundException) {
+            null
+        } catch (_: IllegalArgumentException) {
+            null
+        }
+        val icons = SourceAppIcons(smallIcon, largeIcon)
+        cache.put(packageName, icons)
+        return icons
+    }
+
+    private fun Drawable.toBitmap(): Bitmap {
+        val maxDimension = 96
+        val intrinsicWidth = intrinsicWidth.takeIf { it > 0 } ?: maxDimension
+        val intrinsicHeight = intrinsicHeight.takeIf { it > 0 } ?: maxDimension
+        val scale = minOf(1f, maxDimension.toFloat() / maxOf(intrinsicWidth, intrinsicHeight))
+        val width = (intrinsicWidth * scale).toInt().coerceAtLeast(1)
+        val height = (intrinsicHeight * scale).toInt().coerceAtLeast(1)
+        return Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bitmap ->
+            setBounds(0, 0, width, height)
+            draw(Canvas(bitmap))
+        }
     }
 }

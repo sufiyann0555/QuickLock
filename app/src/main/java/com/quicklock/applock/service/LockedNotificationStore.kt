@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.graphics.Bitmap
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -24,6 +25,8 @@ data class LockedNotification(
     val originalTag: String?,
     val appLabel: String,
     val smallIcon: IconCompat?,
+    val sourceAppIcon: IconCompat?,
+    val sourceAppLargeIcon: Bitmap?,
     val title: String,
     val text: String?,
     val contentIntent: PendingIntent?,
@@ -56,7 +59,7 @@ class LockedNotificationStore {
     fun put(notification: LockedNotification): LockedNotification? {
         val previous = notifications.put(notification.key, notification)
         tapActions[notification.captureToken] = notification.tapAction()
-        previous?.let { tapActions[it.captureToken] = it.tapAction() }
+        previous?.let { tapActions.putIfAbsent(it.captureToken, it.tapAction()) }
         trimOldTapActions(notification.key, notification.captureToken)
         if (previous == null) claimedActions.remove(notification.captureToken)
         return previous
@@ -242,14 +245,19 @@ object LockedNotificationPublisher {
             manager.notify(
                 tag(notification.key),
                 notification.originalId,
-                buildLocked(context, notification, notification.smallIcon, pendingIntent),
+                buildLocked(
+                    context,
+                    notification,
+                    notification.sourceAppIcon ?: notification.smallIcon,
+                    pendingIntent,
+                ),
             )
         } catch (failure: IllegalArgumentException) {
-            if (notification.smallIcon == null) throw failure
+            if (notification.sourceAppIcon == null && notification.smallIcon == null) throw failure
             manager.notify(
                 tag(notification.key),
                 notification.originalId,
-                buildLocked(context, notification, null, pendingIntent),
+                buildLocked(context, notification, notification.smallIcon, pendingIntent),
             )
         }
     }
@@ -263,6 +271,7 @@ object LockedNotificationPublisher {
         .setSmallIcon(smallIcon ?: fallbackIcon(context))
         .setContentTitle(notification.appLabel)
         .setContentText("Unlock to view this notification")
+        .setLargeIcon(notification.sourceAppLargeIcon)
         .setContentIntent(pendingIntent)
         .addAction(R.drawable.ic_notification_lock, "Unlock to view", pendingIntent)
         .setCategory(NotificationCompat.CATEGORY_STATUS)

@@ -40,7 +40,9 @@ services are allowed to start activities from the background; this is the only r
   **Unlock to view** opens QuickLock authentication for that source app. After success, QuickLock restores the saved
   alerts for that app only and sends the exact tapped alert's original content action when that live `PendingIntent`
   remains valid; it never substitutes the app's launcher screen. Other protected apps' alerts remain redacted.
-  Android still attributes replacement alerts to QuickLock; rich source layouts and secondary
+  Redacted alerts use the source app's PackageManager icon when Android accepts it, with QuickLock's icon as a safe
+  fallback. Android still attributes replacement alerts to QuickLock because QuickLock posts them; changing the
+  displayed icon cannot change that attribution. Rich source layouts and secondary
   actions cannot be reproduced. Notification contents and live `PendingIntent` references are held in memory, so
   they cannot be restored if Android kills QuickLock before authentication.
   QuickLock cannot hide protected apps' recents thumbnails.
@@ -88,9 +90,9 @@ AppLockService (AccessibilityService, main thread, event-driven)
               └─ true → start LockActivity(pkg)
 LockActivity: AuthPanel (PIN auto-submits on last digit / pattern) + BiometricPrompt (fingerprint, STRONG only)
               → engine.onUnlocked(pkg) → finish → app is underneath
-LockedAppNotificationListener: captures each source notification, replaces it with a redacted QuickLock alert
-NotificationUnlockActivity: authenticates for the source package → restores that package's saved alerts → sends only the tapped alert's original PendingIntent
-  └─ LockEngine.preAuthorize(pkg): one-shot 8-second grant prevents the accessibility lock from intercepting that launch
+LockedAppNotificationListener: captures each source notification and cached source-app icons, then posts a redacted QuickLock alert
+NotificationUnlockActivity: authenticates for the source package → dispatcher claims the captured action once → restores that package's saved alerts → sends only the tapped alert's original PendingIntent
+  └─ LockEngine.preAuthorize(pkg): one-shot 8-second, package-specific grant; AppLockService ignores only QuickLock's lock/auth screens
 Screen off → all sessions cleared. Keyguard dismissed → current app is re-checked.
 ```
 

@@ -69,6 +69,108 @@ class LockedNotificationStoreTest {
         assertTrue(store.claimTapAction(tappedAction))
     }
 
+    @Test
+    fun authenticatedTapAutomaticallyDispatchesOnceAndRestoresOnlyItsPackage() {
+        val store = LockedNotificationStore()
+        val tapped = notification("instagram-1", "com.instagram.android")
+        val anotherInstagram = notification("instagram-2", "com.instagram.android")
+        val snapchat = notification("snapchat-1", "com.snapchat.android")
+        store.put(tapped)
+        store.put(anotherInstagram)
+        store.put(snapchat)
+
+        var authorizedPackage: String? = null
+        var dispatchedAction: NotificationTapAction? = null
+        var dispatchCount = 0
+        val dispatcher = AuthenticatedNotificationActionDispatcher(store)
+
+        val result = dispatcher.dispatch(
+            packageName = tapped.packageName,
+            notificationKey = tapped.key,
+            captureToken = tapped.captureToken,
+            restorePackage = {
+                store.forPackage(tapped.packageName).forEach { store.remove(it.key) }
+                true
+            },
+            preAuthorize = { authorizedPackage = it },
+            revokeAuthorization = { authorizedPackage = null },
+            sendAction = {
+                dispatchedAction = it
+                dispatchCount++
+                NotificationActionDispatchResult.DISPATCHED
+            },
+        )
+
+        assertEquals(NotificationActionDispatchResult.DISPATCHED, result)
+        assertEquals(1, dispatchCount)
+        assertEquals(tapped.packageName, authorizedPackage)
+        assertEquals(tapped.captureToken, dispatchedAction?.captureToken)
+        assertEquals(listOf(snapchat), store.forPackage(snapchat.packageName))
+        assertEquals(NotificationActionDispatchResult.UNAVAILABLE, dispatcher.dispatch(
+            packageName = tapped.packageName,
+            notificationKey = tapped.key,
+            captureToken = tapped.captureToken,
+            restorePackage = { true },
+            preAuthorize = { authorizedPackage = it },
+            revokeAuthorization = { authorizedPackage = null },
+            sendAction = {
+                dispatchCount++
+                NotificationActionDispatchResult.DISPATCHED
+            },
+        ))
+        assertEquals(1, dispatchCount)
+    }
+
+    @Test
+    fun failedRestoreDoesNotAuthorizeOrDispatchAction() {
+        val store = LockedNotificationStore()
+        val notification = notification("instagram-1", "com.instagram.android")
+        store.put(notification)
+        var authorized = false
+        var dispatched = false
+
+        val result = AuthenticatedNotificationActionDispatcher(store).dispatch(
+            packageName = notification.packageName,
+            notificationKey = notification.key,
+            captureToken = notification.captureToken,
+            restorePackage = { false },
+            preAuthorize = { authorized = true },
+            revokeAuthorization = { authorized = false },
+            sendAction = {
+                dispatched = true
+                NotificationActionDispatchResult.DISPATCHED
+            },
+        )
+
+        assertEquals(NotificationActionDispatchResult.RESTORE_FAILED, result)
+        assertFalse(authorized)
+        assertFalse(dispatched)
+    }
+
+    @Test
+    fun dispatchRejectsPackageMismatch() {
+        val store = LockedNotificationStore()
+        val notification = notification("instagram-1", "com.instagram.android")
+        store.put(notification)
+        var dispatched = false
+
+        val result = AuthenticatedNotificationActionDispatcher(store).dispatch(
+            packageName = "com.snapchat.android",
+            notificationKey = notification.key,
+            captureToken = notification.captureToken,
+            restorePackage = { true },
+            preAuthorize = {},
+            revokeAuthorization = {},
+            sendAction = {
+                dispatched = true
+                NotificationActionDispatchResult.DISPATCHED
+            },
+        )
+
+        assertEquals(NotificationActionDispatchResult.UNAVAILABLE, result)
+        assertFalse(dispatched)
+    }
+
     private fun notification(
         key: String,
         packageName: String,
@@ -81,6 +183,8 @@ class LockedNotificationStoreTest {
         originalTag = null,
         appLabel = packageName,
         smallIcon = null,
+        sourceAppIcon = null,
+        sourceAppLargeIcon = null,
         title = "title",
         text = text,
         contentIntent = null,
