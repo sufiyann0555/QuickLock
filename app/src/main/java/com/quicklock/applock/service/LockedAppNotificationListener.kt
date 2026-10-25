@@ -2,10 +2,12 @@ package com.quicklock.applock.service
 
 import android.app.Notification
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.service.notification.NotificationListenerService
 import android.service.notification.NotificationListenerService.RankingMap
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import androidx.core.graphics.drawable.toBitmap
 import com.quicklock.applock.QuickLockApp
 import com.quicklock.applock.service.LockedNotificationPublisher.TAG_PREFIX
 import kotlinx.coroutines.CoroutineScope
@@ -87,6 +89,11 @@ class LockedAppNotificationListener : NotificationListenerService() {
         } catch (_: PackageManager.NameNotFoundException) {
             sbn.packageName
         }
+        val appIcon: Bitmap? = try {
+            packageManager.getApplicationIcon(sbn.packageName).toBitmap(128, 128)
+        } catch (_: PackageManager.NameNotFoundException) {
+            null
+        }
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
             ?.takeIf { it.isNotBlank() } ?: appLabel
@@ -98,6 +105,7 @@ class LockedAppNotificationListener : NotificationListenerService() {
             key = sbn.key,
             packageName = sbn.packageName,
             appLabel = appLabel,
+            appIcon = appIcon,
             title = title,
             text = text,
             contentIntent = sbn.notification.contentIntent,
