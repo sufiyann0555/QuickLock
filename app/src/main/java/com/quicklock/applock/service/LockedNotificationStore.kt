@@ -6,7 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
+import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
@@ -20,7 +20,7 @@ data class LockedNotification(
     val key: String,
     val packageName: String,
     val appLabel: String,
-    val appIcon: Bitmap?,
+    val smallIcon: Icon?,
     val title: String,
     val text: String?,
     val contentIntent: PendingIntent?,
@@ -76,15 +76,14 @@ object LockedNotificationPublisher {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val redacted = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification_lock)
-            .setLargeIcon(notification.appIcon)
+            .setSmallIcon(notification.smallIcon ?: Icon.createWithResource(context, R.drawable.ic_notification_lock))
             .setContentTitle(notification.appLabel)
             .setContentText("Unlock to view this notification")
             .setContentIntent(pendingIntent)
             .addAction(R.drawable.ic_notification_lock, "Unlock to view", pendingIntent)
             .setCategory(NotificationCompat.CATEGORY_STATUS)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setPublicVersion(publicVersion(context, notification.appLabel, notification.appIcon))
+            .setPublicVersion(publicVersion(context, notification.appLabel, notification.smallIcon))
             .setOnlyAlertOnce(true)
             .setAutoCancel(false)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -94,13 +93,12 @@ object LockedNotificationPublisher {
 
     fun postRestored(context: Context, notification: LockedNotification) {
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification_lock)
-            .setLargeIcon(notification.appIcon)
+            .setSmallIcon(notification.smallIcon ?: Icon.createWithResource(context, R.drawable.ic_notification_lock))
             .setContentTitle(notification.title.ifBlank { notification.appLabel })
             .setContentIntent(notification.contentIntent)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setPublicVersion(publicVersion(context, notification.appLabel, notification.appIcon))
+            .setPublicVersion(publicVersion(context, notification.appLabel, notification.smallIcon))
             .setAutoCancel(true)
             .setOnlyAlertOnce(true)
         notification.text?.let { builder.setContentText(it).setStyle(NotificationCompat.BigTextStyle().bigText(it)) }
@@ -120,10 +118,9 @@ object LockedNotificationPublisher {
 
     private fun tag(key: String) = TAG_PREFIX + key
 
-    private fun publicVersion(context: Context, appLabel: String, appIcon: Bitmap?): Notification =
+    private fun publicVersion(context: Context, appLabel: String, smallIcon: Icon?): Notification =
         NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification_lock)
-            .setLargeIcon(appIcon)
+            .setSmallIcon(smallIcon ?: Icon.createWithResource(context, R.drawable.ic_notification_lock))
             .setContentTitle(appLabel)
             .setContentText("Unlock to view this notification")
             .build()
