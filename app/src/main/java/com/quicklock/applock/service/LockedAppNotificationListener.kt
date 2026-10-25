@@ -6,6 +6,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.NotificationListenerService.RankingMap
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import androidx.core.graphics.drawable.IconCompat
 import com.quicklock.applock.QuickLockApp
 import com.quicklock.applock.service.LockedNotificationPublisher.TAG_PREFIX
 import kotlinx.coroutines.CoroutineScope
@@ -98,7 +99,7 @@ class LockedAppNotificationListener : NotificationListenerService() {
             key = sbn.key,
             packageName = sbn.packageName,
             appLabel = appLabel,
-            smallIcon = sbn.notification.smallIcon,
+            smallIcon = sbn.notification.smallIcon?.let { IconCompat.createFromIcon(this, it) },
             title = title,
             text = text,
             contentIntent = sbn.notification.contentIntent,
