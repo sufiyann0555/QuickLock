@@ -35,9 +35,12 @@ services are allowed to start activities from the background; this is the only r
 * **Cannot cover the app before its first frame.** The lock appears a moment after the protected app's window
   does (typically tens of milliseconds). The lock theme paints an opaque background immediately to keep this short, but a
   frame of the app may flash on slower devices.
-* **Notification filtering is optional and requires explicit notification access.** When enabled, QuickLock removes
-  notifications from apps in the protected-app list. Removed notifications are not saved or restored when you unlock
-  an app. QuickLock cannot hide protected apps' recents thumbnails.
+* **Notification filtering is optional and requires notification access plus permission to post notifications.** When
+  enabled, QuickLock replaces protected apps' alerts with redacted entries in the notification drawer. Tapping
+  **Unlock to view** opens QuickLock authentication; after success, the alert's title and text are shown in the drawer
+  and its original tap action is retained. Rich notification layouts and secondary actions are not preserved. Pending
+  content is held in memory, so it cannot be restored if Android kills QuickLock before authentication.
+  QuickLock cannot hide protected apps' recents thumbnails.
 * **Cannot survive being killed by the OS.** If Samsung force-stops the process, state resets to "everything
   locked" (the safe default), but the accessibility service may stay disabled until re-enabled. See the battery steps below.
 * After a keyguard unlock, Android may not emit a window event for the app that reappears. QuickLock handles this
@@ -63,9 +66,10 @@ services are allowed to start activities from the background; this is the only r
 2. **Settings tab > Accessibility service > Enable**, then pick *QuickLock* and switch it on.
    *Sideloaded build on Android 13+ and the switch is greyed out?* Open **App info > ⋮ > Allow restricted settings**
    (the in-app *Open app info* button takes you there), then retry.
-3. **Settings tab > Hide locked-app notifications > Enable** to open Android's Notification access screen, then allow
-  *QuickLock Hide Locked-App Notifications*. This is optional; Android warns that notification listeners can access
-  notification content. QuickLock only checks the posting app and removes notifications for protected packages.
+3. **Settings tab > Lock app notifications > Allow/Enable**. Allow QuickLock notifications if Android asks, then allow
+  *QuickLock Lock App Notifications* in Android's Notification access screen. This is optional; Android warns that
+  notification listeners can access notification content. QuickLock reads the title and text of protected-app
+  notifications to hold them in memory and restore them only after authentication.
 4. **Samsung battery settings** (important for reliability):
    * *Settings > Battery > Background usage limits*: turn **off** "Put unused apps to sleep" (or add QuickLock to **Never sleeping apps**).
    * *Settings > Apps > QuickLock > Battery* > **Unrestricted**. (The *Fix* button opens the list.)
@@ -81,7 +85,7 @@ AppLockService (AccessibilityService, main thread, event-driven)
               └─ true → start LockActivity(pkg)
 LockActivity: AuthPanel (PIN auto-submits on last digit / pattern) + BiometricPrompt (fingerprint, STRONG only)
               → engine.onUnlocked(pkg) → finish → app is underneath
-LockedAppNotificationListener: removes posted notifications from packages in the protected-app list (if access is enabled)
+LockedAppNotificationListener: replaces notifications from protected packages with redacted entries, then restores title/text after authentication
 Screen off → all sessions cleared. Keyguard dismissed → current app is re-checked.
 ```
 
@@ -106,9 +110,10 @@ edit the protected list or settings. Opening system Settings from inside QuickLo
 |---|---|
 | `USE_BIOMETRIC` | Fingerprint prompt |
 | `BIND_ACCESSIBILITY_SERVICE` (service-level, granted by the user in Settings) | Foreground-app detection. Window events only, **no content access**. |
-| `BIND_NOTIFICATION_LISTENER_SERVICE` (user-granted special access) | Optionally removes notifications posted by apps in the protected-app list. |
+| `BIND_NOTIFICATION_LISTENER_SERVICE` (user-granted special access) | Optionally intercepts notifications from protected apps. |
+| `POST_NOTIFICATIONS` (runtime permission on Android 13+) | Posts the redacted notification and the authenticated notification content. |
 
-No `INTERNET`, no `QUERY_ALL_PACKAGES` (a `<queries>` launcher intent is used instead), no overlay, no usage stats, no notifications posted by QuickLock, no boot receiver.
+No `INTERNET`, no `QUERY_ALL_PACKAGES` (a `<queries>` launcher intent is used instead), no overlay, no usage stats, no boot receiver.
 
 ## 4. Performance notes
 * Zero polling, zero background threads (one short Keystore warm-up at service start), no foreground service or wake locks.
@@ -121,7 +126,8 @@ No `INTERNET`, no `QUERY_ALL_PACKAGES` (a `<queries>` launcher intent is used in
 ## 5. Manual test checklist
 - [ ] Lock an app → open it → lock screen appears; correct PIN/pattern/fingerprint opens it.
 - [ ] Locked apps move to the top of the Apps list as soon as their switches are enabled.
-- [ ] With notification access enabled, notifications from locked apps disappear; notifications from unlocked apps remain.
+- [ ] With notification access and posting permission enabled, locked-app alerts stay redacted in the drawer; tapping **Unlock to view** and authenticating reveals the title/text.
+- [ ] Notifications from unlocked apps remain unchanged, and QuickLock does not intercept its own notifications.
 - [ ] Home, then reopen (relock = immediately) → locked again. With 30 s grace → open within 30 s, no prompt.
 - [ ] Show the keyboard / pull the notification shade inside an unlocked app → no relock.
 - [ ] Screen off/on with a protected app in front → locked after unlock.

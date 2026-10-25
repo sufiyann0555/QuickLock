@@ -1,14 +1,18 @@
 package com.quicklock.applock.ui.main
 
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -34,6 +38,7 @@ import androidx.fragment.app.FragmentActivity
 import com.quicklock.applock.data.SettingsStore
 import com.quicklock.applock.quickLock
 import com.quicklock.applock.security.BiometricHelper
+import com.quicklock.applock.service.LockedNotificationPublisher
 import com.quicklock.applock.ui.components.AuthPanel
 import com.quicklock.applock.ui.theme.QuickLockTheme
 import com.quicklock.applock.util.SystemChecks
@@ -45,6 +50,10 @@ import com.quicklock.applock.util.SystemChecks
 class MainActivity : FragmentActivity() {
 
     private val vm: MainViewModel by viewModels()
+    private val notificationPermissionRequest =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted && !SystemChecks.isNotificationAccessEnabled(this)) openNotificationListenerSettings()
+        }
     private var resumeTick by mutableIntStateOf(0)
     private var stoppedAt = 0L
     private var authInProgress = false
@@ -97,7 +106,20 @@ class MainActivity : FragmentActivity() {
                 vm = vm,
                 health = health,
                 onEnableAccessibility = { openSystemSettings(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
-                onEnableNotificationAccess = { openSystemSettings(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                onEnableNotificationAccess = {
+                    val needsPostPermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    when {
+                        needsPostPermission ->
+                            notificationPermissionRequest.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        !LockedNotificationPublisher.canPost(this) ->
+                            openSystemSettings(
+                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, packageName),
+                            )
+                        else -> openNotificationListenerSettings()
+                    }
+                },
                 onFixBattery = { openSystemSettings(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) },
                 onOpenAppInfo = {
                     openSystemSettings(
@@ -154,6 +176,10 @@ class MainActivity : FragmentActivity() {
         } catch (_: ActivityNotFoundException) {
             startActivity(Intent(Settings.ACTION_SETTINGS))
         }
+    }
+
+    private fun openNotificationListenerSettings() {
+        openSystemSettings(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     }
 
     private companion object {

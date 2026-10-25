@@ -209,18 +209,22 @@ private fun SettingsTab(
                     onAction = onEnableAccessibility,
                 )
                 StatusRow(
-                    title = "Hide locked-app notifications",
-                    detail = if (health.notificationAccessEnabled) {
-                        "On. Notifications from protected apps are removed."
+                    title = "Lock app notifications",
+                    detail = if (!health.notificationPostingAllowed) {
+                        "Allow QuickLock notifications so locked alerts can stay in the drawer."
+                    } else if (health.notificationAccessEnabled) {
+                        "On. Alerts stay hidden until you authenticate to view them."
                     } else {
-                        "Off. Allow notification access to hide notifications from protected apps."
+                        "Off. Allow notification access to replace protected-app alerts."
                     },
-                    ok = health.notificationAccessEnabled,
-                    actionLabel = if (health.notificationAccessEnabled) null else "Enable",
+                    ok = health.notificationFilteringEnabled,
+                    actionLabel = if (health.notificationFilteringEnabled) null else {
+                        if (health.notificationPostingAllowed) "Enable" else "Allow"
+                    },
                     onAction = onEnableNotificationAccess,
                 )
                 Text(
-                    "QuickLock removes notifications from apps you lock. Removed notifications aren't saved or restored when you unlock an app.",
+                    "Locked-app alerts are replaced with a redacted notification. Tap “Unlock to view” and authenticate to reveal its content in the drawer.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),

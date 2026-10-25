@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- The only uses-permission entry. No INTERNET, QUERY_ALL_PACKAGES, overlay, or usage-stats. -->
+    <!-- No INTERNET, QUERY_ALL_PACKAGES, overlay, or usage-stats. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Lets us list launchable apps for the picker without QUERY_ALL_PACKAGES. -->
     <queries>
@@ -39,6 +40,12 @@
             android:excludeFromRecents="true"
             android:launchMode="singleTask"
             android:taskAffinity="${applicationId}.lock"
+            android:theme="@style/Theme.QuickLock.Lock" />
+
+        <activity
+            android:name=".ui.lock.NotificationUnlockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
             android:theme="@style/Theme.QuickLock.Lock" />
 
         <service

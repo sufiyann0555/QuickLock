@@ -6,6 +6,7 @@ import android.os.SystemClock
 import com.quicklock.applock.data.SettingsStore
 import com.quicklock.applock.security.CredentialStore
 import com.quicklock.applock.service.LockEngine
+import com.quicklock.applock.service.LockedNotificationStore
 
 /**
  * Process-wide singletons. Everything is small and created synchronously (a couple of
@@ -18,6 +19,7 @@ class QuickLockApp : Application() {
         private set
     lateinit var engine: LockEngine
         private set
+    val lockedNotifications = LockedNotificationStore()
 
     override fun onCreate() {
         super.onCreate()

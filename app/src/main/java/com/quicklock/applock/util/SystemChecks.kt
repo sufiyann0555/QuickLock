@@ -10,22 +10,28 @@ import com.quicklock.applock.quickLock
 import com.quicklock.applock.security.BiometricHelper
 import com.quicklock.applock.service.AppLockService
 import com.quicklock.applock.service.LockedAppNotificationListener
+import com.quicklock.applock.service.LockedNotificationPublisher
 
 data class Health(
     val accessibilityEnabled: Boolean,
     val notificationAccessEnabled: Boolean,
+    val notificationPostingAllowed: Boolean,
     val credentialSet: Boolean,
     val batteryUnrestricted: Boolean,
     val biometricAvailable: Boolean,
 ) {
     /** Everything required for reliable protection. */
-    val allGood: Boolean get() = accessibilityEnabled && notificationAccessEnabled && credentialSet && batteryUnrestricted
+    val notificationFilteringEnabled: Boolean
+        get() = notificationAccessEnabled && notificationPostingAllowed
+    val allGood: Boolean
+        get() = accessibilityEnabled && notificationFilteringEnabled && credentialSet && batteryUnrestricted
 }
 
 object SystemChecks {
     fun health(context: Context) = Health(
         accessibilityEnabled = isAccessibilityEnabled(context),
         notificationAccessEnabled = isNotificationAccessEnabled(context),
+        notificationPostingAllowed = LockedNotificationPublisher.canPost(context),
         credentialSet = context.quickLock.credentials.isSet,
         batteryUnrestricted = isBatteryUnrestricted(context),
         biometricAvailable = BiometricHelper.biometricAvailable(context),
